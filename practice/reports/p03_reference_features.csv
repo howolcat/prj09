@@ -1,0 +1,5 @@
+﻿label,method,threshold,valid_count,largest_area_ratio,touches_border,gray_min
+ok,otsu,115.0,1,0.166875,True,7.0
+ok,fixed,80.0,1,0.12853515625,True,7.0
+ng,otsu,203.0,1,0.9109765625,True,112.0
+ng,fixed,80.0,0,0.0,False,112.0

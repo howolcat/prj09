@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>practice - 실시간 케이블 검사</title>
+  <style>
+    :root { font-family: "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif; color:#17243a; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#edf2f9; }
+    main { max-width:1180px; margin:20px auto; padding:0 18px 32px; }
+    header { background:#123574; color:white; padding:22px 26px; border-radius:14px; }
+    h1 { margin:0; font-size:clamp(21px,3vw,30px); }
+    header p { margin:9px 0 0; color:#dbeaff; }
+    .panel { margin-top:15px; background:white; padding:17px; border-radius:12px; box-shadow:0 3px 16px #24436610; }
+    label, .label { display:block; font-weight:750; margin-bottom:8px; }
+    .controls { display:flex; flex-wrap:wrap; gap:9px; }
+    input { min-width:220px; flex:1; font-size:15px; padding:11px 12px; border:1px solid #bdcde3; border-radius:8px; }
+    button { border:none; cursor:pointer; border-radius:8px; padding:11px 15px; font-size:14px; font-weight:700; background:#1957bf; color:white; }
+    button.secondary { background:#55657a; }
+    button.ok-btn { background:#0e893c; }
+    button.ng-btn { background:#d72b2b; }
+    button:focus-visible, input:focus-visible { outline:3px solid #f3b95b; outline-offset:2px; }
+    .columns { display:grid; grid-template-columns:minmax(0,2fr) minmax(250px,1fr); gap:15px; align-items:start; }
+    .stage { position:relative; background:#263343; border-radius:9px; overflow:hidden; }
+    #video { display:block; width:100%; height:auto; min-height:240px; }
+    #selection { position:absolute; inset:0; width:100%; height:100%; cursor:crosshair; touch-action:none; }
+    .hint { margin:8px 0 0; color:#52627a; font-size:14px; line-height:1.6; }
+    .status-box { text-align:center; padding:24px 9px; background:#eef3fa; border-radius:10px; border:1px solid #d6e2f2; }
+    #decision { font-size:clamp(36px,4vw,58px); font-weight:900; color:#53687f; letter-spacing:1px; }
+    #decision.ok { color:#0e893c; } #decision.ng { color:#d72b2b; } #decision.check { color:#b27400; }
+    #meaning { margin-top:7px; font-weight:700; }
+    dl { display:grid; grid-template-columns:1fr auto; row-gap:12px; font-size:14px; }
+    dt { color:#58677a; } dd { margin:0; font-weight:800; }
+    #notice { margin-top:10px; min-height:24px; color:#aa2430; white-space:pre-wrap; font-size:14px; }
+    .steps { margin:0 0 10px; padding-left:20px; color:#52627a; font-size:14px; line-height:1.7; }
+    .note { background:#fff9e7; padding:12px; border-left:4px solid #e7b73f; line-height:1.65; color:#5a4b28; font-size:14px; margin-top:12px; }
+    @media(max-width:760px){ .columns{grid-template-columns:1fr;} main{margin-top:8px} }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>practice | IP Webcam 실시간 케이블 체결 검사</h1>
+    <p>Day01 ROI + Day02 Threshold + Day03 Contour · Rule + FastAPI</p>
+  </header>
+
+  <section class="panel">
+    <label for="camera-url">① 스마트폰 IP Webcam 영상 주소를 입력합니다.</label>
+    <div class="controls">
+      <input id="camera-url" type="url" placeholder="예: http://192.168.0.25:8080/video" autocomplete="off">
+      <button id="connect" type="button">카메라 연결</button>
+    </div>
+    <div id="notice" role="alert"></div>
+  </section>
+
+  <div class="columns">
+    <section class="panel">
+      <label>② 영상에서 충전기 입구(케이블이 꽂히는 곳)를 드래그합니다.</label>
+      <div class="stage">
+        <img id="video" src="/stream.mjpg" alt="스마트폰 카메라 실시간 영상">
+        <canvas id="selection" aria-label="ROI 선택 화면"></canvas>
+      </div>
+      <div class="controls" style="margin-top:11px;">
+        <button id="reset-roi" class="secondary" type="button">ROI 다시 선택</button>
+      </div>
+      <p class="hint">휴대폰과 충전기 위치를 고정한 뒤 ROI를 잡으세요. 위치가 움직이면 같은 ROI라도 결과가 달라집니다.</p>
+    </section>
+
+    <aside class="panel">
+      <span class="label">③ 실시간 검사 결과</span>
+      <div class="status-box" aria-live="polite">
+        <div id="decision">대기</div>
+        <div id="meaning">카메라와 ROI를 준비하세요.</div>
+      </div>
+      <dl>
+        <dt>카메라 상태</dt><dd id="camera-state">NOT_CONNECTED</dd>
+        <dt>검사 Area Ratio</dt><dd id="ratio">-</dd>
+        <dt>Rule 기준값</dt><dd id="threshold">-</dd>
+        <dt>OK 기준 Ratio</dt><dd id="ok-ratio">-</dd>
+        <dt>NG 기준 Ratio</dt><dd id="ng-ratio">-</dd>
+        <dt>사용 중인 Rule</dt><dd id="rule-name">-</dd>
+      </dl>
+    </aside>
+  </div>
+
+  <section class="panel">
+    <span class="label">④ 웹캠 기준 다시 잡기 (사진 Rule이 잘 안 맞을 때)</span>
+    <ol class="steps">
+      <li>케이블을 <b>꽂은 상태</b>에서 「OK 기준 저장」</li>
+      <li>케이블을 <b>뺀 상태</b>에서 「NG 기준 저장」 (ROI는 그대로!)</li>
+      <li>「웹캠 Rule 만들기」 → 이후 실시간 판정에 바로 적용</li>
+    </ol>
+    <div class="controls">
+      <button id="save-ok" class="ok-btn" type="button">OK 기준 저장 <span id="ok-saved"></span></button>
+      <button id="save-ng" class="ng-btn" type="button">NG 기준 저장 <span id="ng-saved"></span></button>
+      <button id="make-rule" type="button">웹캠 Rule 만들기</button>
+      <button id="use-photo" class="secondary" type="button">사진 Rule 사용</button>
+      <button id="use-live" class="secondary" type="button">웹캠 Rule 사용</button>
+    </div>
+    <div class="note">p04 Rule은 휴대폰 <b>사진</b>(160×160 ROI)으로 만든 기준입니다. 웹캠은 거리·조명·해상도가 달라서
+      Area Ratio도 달라질 수 있어요. 실시간에서 판정이 이상하면 ④로 웹캠 기준을 새로 잡아 보세요.
+      (3일차 "기준 이미지 → Rule" 흐름을 웹에서 다시 하는 것)</div>
+  </section>
+</main>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const img = $('video');
+  const canvas = $('selection');
+  const ctx = canvas.getContext('2d');
+  let dragging = false, start = null, selected = null;
+
+  // ---------- 서버 통신 공통 함수 ----------
+  async function requestJson(path, options) {
+    const response = await fetch(path, options);
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : '서버 요청 실패');
+    return result;
+  }
+  const jsonPost = (path, data = {}) => requestJson(path, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+  });
+  const notice = text => { $('notice').textContent = text; };
+  const fmt = v => (v === null || v === undefined) ? '-' : v.toFixed(3);
+
+  // ---------- ROI 드래그 (0~1 비율 좌표) ----------
+  function sizeCanvas() {
+    const r = img.getBoundingClientRect();
+    const w = Math.round(r.width), h = Math.round(r.height);
+    if (w && h && (canvas.width !== w || canvas.height !== h)) {
+      canvas.width = w; canvas.height = h; drawSelection();
+    }
+  }
+  function drawSelection(current = null) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const r = current || selected;
+    if (!r) return;
+    ctx.fillStyle = 'rgba(255, 200, 45, 0.13)';
+    ctx.strokeStyle = '#facc40'; ctx.lineWidth = 3; ctx.setLineDash([7, 4]);
+    const x = r.x1 * canvas.width, y = r.y1 * canvas.height;
+    const w = (r.x2 - r.x1) * canvas.width, h = (r.y2 - r.y1) * canvas.height;
+    ctx.fillRect(x, y, w, h); ctx.strokeRect(x, y, w, h);
+  }
+  function pointFromEvent(e) {
+    const r = canvas.getBoundingClientRect();
+    const clamp = v => Math.min(1, Math.max(0, v));
+    return { x: clamp((e.clientX - r.left) / r.width), y: clamp((e.clientY - r.top) / r.height) };
+  }
+  const rectangle = (a, b) => ({ x1: Math.min(a.x, b.x), y1: Math.min(a.y, b.y),
+                                 x2: Math.max(a.x, b.x), y2: Math.max(a.y, b.y) });
+
+  canvas.addEventListener('pointerdown', e => {
+    e.preventDefault(); sizeCanvas();
+    dragging = true; start = pointFromEvent(e);
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (dragging) drawSelection(rectangle(start, pointFromEvent(e)));
+  });
+  canvas.addEventListener('pointerup', async e => {
+    if (!dragging) return;
+    dragging = false;
+    const rect = rectangle(start, pointFromEvent(e));
+    if (rect.x2 - rect.x1 < 0.03 || rect.y2 - rect.y1 < 0.03) {
+      notice('ROI가 너무 작습니다. 충전기 입구를 넓게 드래그하세요.'); drawSelection(); return;
+    }
+    try { await jsonPost('/api/roi', rect); selected = rect; drawSelection(); notice(''); }
+    catch (err) { notice(err.message); drawSelection(); }
+  });
+  canvas.addEventListener('pointercancel', () => { dragging = false; drawSelection(); });
+
+  // ---------- 버튼 ----------
+  $('connect').onclick = async () => {
+    try {
+      await jsonPost('/api/camera', { url: $('camera-url').value.trim() });
+      selected = null; drawSelection();
+      notice('카메라 연결을 시도합니다. 영상이 나오면 ROI를 선택하세요.');
+    } catch (err) { notice(err.message); }
+  };
+  $('reset-roi').onclick = async () => {
+    try { await requestJson('/api/roi', { method: 'DELETE' }); selected = null; drawSelection(); notice('ROI를 초기화했습니다.'); }
+    catch (err) { notice(err.message); }
+  };
+  async function saveReference(label) {
+    try {
+      const r = await jsonPost(`/api/reference/${label}`);
+      notice(`${label.toUpperCase()} 기준 저장: ${r.saved} (${r.size[0]}×${r.size[1]}px)`);
+    } catch (err) { notice(err.message); }
+  }
+  $('save-ok').onclick = () => saveReference('ok');
+  $('save-ng').onclick = () => saveReference('ng');
+  $('make-rule').onclick = async () => {
+    try {
+      const r = (await jsonPost('/api/live-rule')).rule;
+      notice(`웹캠 Rule 생성: OK ${fmt(r.ok_reference_ratio)} / NG ${fmt(r.ng_reference_ratio)} → 기준값 ${fmt(r.area_ratio_threshold)}`);
+    } catch (err) { notice(err.message); }
+  };
+  const useRule = async name => {
+    try { await jsonPost('/api/use-rule', { name }); notice(`${name === 'live' ? '웹캠' : '사진'} Rule로 바꿨습니다.`); }
+    catch (err) { notice(err.message); }
+  };
+  $('use-photo').onclick = () => useRule('photo');
+  $('use-live').onclick = () => useRule('live');
+
+  // ---------- 0.4초마다 상태 확인 ----------
+  async function refreshStatus() {
+    try {
+      const d = await requestJson('/api/status');
+      $('camera-state').textContent = d.camera_status;
+      $('ratio').textContent = fmt(d.ratio);
+      $('threshold').textContent = fmt(d.threshold);
+      $('ok-ratio').textContent = fmt(d.ok_ratio);
+      $('ng-ratio').textContent = fmt(d.ng_ratio);
+      $('rule-name').textContent = d.rule_version ? `${d.rule_name} (${d.rule_version})` : '-';
+      $('ok-saved').textContent = d.live_reference.ok ? '✔' : '';
+      $('ng-saved').textContent = d.live_reference.ng ? '✔' : '';
+
+      if (d.roi && !dragging) {
+        selected = { x1: d.roi[0], y1: d.roi[1], x2: d.roi[2], y2: d.roi[3] };
+        drawSelection();
+      }
+
+      const box = $('decision');
+      box.className = '';
+      if (d.decision === 'OK' && d.rule_ready) {
+        box.textContent = 'OK'; box.className = 'ok'; $('meaning').textContent = '케이블 꽂힘';
+      } else if (d.decision === 'NG' && d.rule_ready) {
+        box.textContent = 'NG'; box.className = 'ng'; $('meaning').textContent = '케이블 없음';
+      } else if (d.decision === 'CHECK') {
+        box.textContent = '확인 필요'; box.className = 'check'; $('meaning').textContent = 'ROI를 확인하세요.';
+      } else {
+        box.textContent = '대기';
+        $('meaning').textContent = !d.rule_ready ? 'Rule 파일 확인 필요'
+          : d.camera_status !== 'ONLINE' ? '카메라 연결 확인 필요' : 'ROI를 선택하세요.';
+      }
+      if (!d.rule_ready) notice(d.rule_error);
+    } catch (err) { notice('상태 확인 실패: ' + err.message); }
+  }
+  img.addEventListener('load', sizeCanvas);
+  new ResizeObserver(sizeCanvas).observe(img);
+  setInterval(refreshStatus, 400);
+  refreshStatus(); sizeCanvas();
+</script>
+</body>
+</html>

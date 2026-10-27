@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>practice - 케이블 체결 검사</title>
+  <style>
+    :root { font-family: "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif; color:#17243a; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#edf2f9; }
+    main { max-width:1180px; margin:20px auto; padding:0 18px 32px; }
+    header { background:#123574; color:white; padding:22px 26px; border-radius:14px; }
+    h1 { margin:0; font-size:clamp(21px,3vw,30px); }
+    header p { margin:9px 0 0; color:#dbeaff; }
+    .panel { margin-top:15px; background:white; padding:17px; border-radius:12px; box-shadow:0 3px 16px #24436610; }
+    label, .label { display:block; font-weight:750; margin-bottom:8px; }
+    .controls { display:flex; flex-wrap:wrap; gap:9px; align-items:center; }
+    select, input[type=file] { flex:1; min-width:180px; font-size:15px; padding:9px 10px; border:1px solid #bdcde3; border-radius:8px; background:white; }
+    button { border:none; cursor:pointer; border-radius:8px; padding:11px 15px; font-size:14px; font-weight:700; background:#1957bf; color:white; }
+    button.secondary { background:#55657a; }
+    button:disabled { opacity:.45; cursor:default; }
+    button:focus-visible, select:focus-visible { outline:3px solid #f3b95b; outline-offset:2px; }
+    .columns { display:grid; grid-template-columns:minmax(0,2fr) minmax(250px,1fr); gap:15px; align-items:start; }
+    .stage { position:relative; background:#263343; border-radius:9px; overflow:hidden; min-height:220px; }
+    #photo { display:block; width:100%; height:auto; }
+    #selection { position:absolute; inset:0; width:100%; height:100%; cursor:crosshair; touch-action:none; }
+    .empty { color:#a9b6c8; text-align:center; padding:90px 10px; }
+    .hint { margin:8px 0 0; color:#52627a; font-size:14px; line-height:1.6; }
+    .status-box { text-align:center; padding:22px 9px; background:#eef3fa; border-radius:10px; border:1px solid #d6e2f2; }
+    #decision { font-size:clamp(36px,4vw,58px); font-weight:900; color:#53687f; letter-spacing:1px; }
+    #decision.ok { color:#0e893c; }
+    #decision.ng { color:#d72b2b; }
+    #meaning { margin-top:7px; font-weight:700; }
+    dl { display:grid; grid-template-columns:1fr auto; row-gap:12px; font-size:14px; }
+    dt { color:#58677a; } dd { margin:0; font-weight:800; }
+    .result-images { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px; }
+    .result-images figure { margin:0; text-align:center; font-size:12px; color:#58677a; }
+    .result-images img { width:100%; border-radius:6px; background:#263343; min-height:60px; }
+    #notice { margin-top:10px; min-height:22px; color:#aa2430; white-space:pre-wrap; font-size:14px; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th, td { padding:7px 6px; border-bottom:1px solid #e3eaf4; text-align:left; }
+    th { color:#58677a; font-weight:700; }
+    td.ok { color:#0e893c; font-weight:800; } td.ng { color:#d72b2b; font-weight:800; }
+    td.wrong { color:#d72b2b; } td.right { color:#0e893c; }
+    @media(max-width:760px){ .columns{grid-template-columns:1fr;} main{margin-top:8px} }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>practice | 충전기 케이블 체결 검사</h1>
+    <p>Day01 ROI + Day02 Threshold + Day03 Contour · Rule + FastAPI · <span id="rule-version">Rule 읽는 중...</span></p>
+  </header>
+
+  <!-- ① 서버에 저장된 샘플 검사 -->
+  <section class="panel">
+    <label for="sample">① 저장된 샘플 이미지 검사 (p01 기준 이미지 / p02 테스트 이미지)</label>
+    <div class="controls">
+      <select id="sample"></select>
+      <button id="inspect-sample" type="button">샘플 검사</button>
+      <button id="inspect-all" class="secondary" type="button">테스트 전체 검사</button>
+      <button id="reload-rule" class="secondary" type="button">Rule 다시 읽기</button>
+    </div>
+    <div id="notice" role="alert"></div>
+  </section>
+
+  <div class="columns">
+    <!-- ② 내 사진 올려서 ROI 지정 후 검사 -->
+    <section class="panel">
+      <label for="file">② 내 사진 올리기 → 충전기 입구를 드래그해서 ROI 지정 → 검사</label>
+      <div class="controls">
+        <input id="file" type="file" accept="image/*">
+        <button id="inspect-upload" type="button" disabled>업로드 검사</button>
+        <button id="reset-roi" class="secondary" type="button">ROI 지우기</button>
+      </div>
+      <div class="stage" style="margin-top:11px;">
+        <div id="empty" class="empty">사진을 선택하면 여기에 표시됩니다.</div>
+        <img id="photo" alt="업로드한 사진" hidden>
+        <canvas id="selection" aria-label="ROI 선택 화면" hidden></canvas>
+      </div>
+      <p class="hint" id="roi-state">ROI를 지정하지 않으면 사진 전체를 검사합니다. Rule은 160×160 ROI로 만들었으니, 기준 이미지와 비슷한 범위로 잡아야 공정한 비교가 됩니다.</p>
+    </section>
+
+    <!-- ③ 결과 -->
+    <aside class="panel">
+      <span class="label">③ 검사 결과</span>
+      <div class="status-box" aria-live="polite">
+        <div id="decision">대기</div>
+        <div id="meaning">샘플을 고르거나 사진을 올리세요.</div>
+      </div>
+      <dl>
+        <dt>검사 대상</dt><dd id="source">-</dd>
+        <dt>Area Ratio</dt><dd id="ratio">-</dd>
+        <dt>Rule 기준값</dt><dd id="threshold">-</dd>
+        <dt>판정 이유</dt><dd id="reason">-</dd>
+        <dt>정답 비교</dt><dd id="correct">-</dd>
+      </dl>
+      <div class="result-images">
+        <figure><img id="annotated" alt="Contour 결과"><figcaption>Contour</figcaption></figure>
+        <figure><img id="binary" alt="Binary 결과"><figcaption>Binary (흰색=케이블 후보)</figcaption></figure>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ④ 최근 기록 -->
+  <section class="panel">
+    <div class="controls" style="justify-content:space-between;">
+      <span class="label" style="margin:0;">④ 최근 검사 기록 (서버 메모리, 최대 20개)</span>
+      <button id="clear-history" class="secondary" type="button">기록 지우기</button>
+    </div>
+    <table>
+      <thead><tr><th>시간</th><th>대상</th><th>판정</th><th>Area Ratio</th><th>정답</th></tr></thead>
+      <tbody id="history"></tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const photo = $('photo');
+  const canvas = $('selection');
+  const ctx = canvas.getContext('2d');
+
+  let imageData = null;     // 업로드한 사진 (data:image/...;base64,...)
+  let fileName = 'upload';
+  let selected = null;      // 선택한 ROI (0~1 비율 좌표)
+  let dragging = false, start = null;
+
+  // ---------- 서버와 통신하는 공통 함수 ----------
+  async function requestJson(url, options = {}) {
+    const response = await fetch(url, options);
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      // FastAPI 에러는 {"detail": "..."} 형태로 옵니다.
+      const detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+      throw new Error(detail || `요청 실패 (${response.status})`);
+    }
+    return body;
+  }
+  const jsonPost = (url, data) => requestJson(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  const showNotice = text => { $('notice').textContent = text || ''; };
+
+  // ---------- 결과 화면 갱신 ----------
+  function showResult(r) {
+    const box = $('decision');
+    box.textContent = r.decision;
+    box.className = r.decision.toLowerCase();
+    $('meaning').textContent = r.decision === 'OK' ? '케이블이 꽂혀 있습니다.' : '케이블이 보이지 않습니다.';
+    $('source').textContent = r.source;
+    $('ratio').textContent = r.area_ratio.toFixed(4);
+    $('threshold').textContent = (r.decision === 'OK' ? '≥ ' : '< ') + r.area_ratio_threshold.toFixed(4);
+    $('reason').textContent = r.reason || '-';
+    $('correct').textContent = r.actual === undefined ? '-' :
+      (r.correct ? `정답 (실제 ${r.actual})` : `오판정 (실제 ${r.actual})`);
+    $('annotated').src = r.annotated_image;
+    $('binary').src = r.binary_image;
+  }
+
+  async function refreshHistory() {
+    const rows = await requestJson('/api/history');
+    $('history').innerHTML = rows.map(r => `
+      <tr>
+        <td>${r.inspected_at.slice(11)}</td>
+        <td>${r.source}</td>
+        <td class="${r.decision.toLowerCase()}">${r.decision}</td>
+        <td>${r.area_ratio.toFixed(4)}</td>
+        <td class="${r.correct === false ? 'wrong' : 'right'}">${r.actual === undefined ? '-' : (r.correct ? 'O' : 'X')}</td>
+      </tr>`).join('');
+  }
+
+  // ---------- ① 샘플 검사 ----------
+  async function loadSamples() {
+    const samples = await requestJson('/api/samples');
+    $('sample').innerHTML = Object.entries(samples).map(([folder, names]) =>
+      `<optgroup label="${folder}">` +
+      names.map(n => `<option value="${folder}/${n}">${folder}/${n}</option>`).join('') +
+      '</optgroup>').join('');
+  }
+
+  async function inspectSample(value) {
+    const [folder, file_name] = value.split('/');
+    return jsonPost('/api/inspect/sample', { folder, file_name });
+  }
+
+  $('inspect-sample').onclick = async () => {
+    showNotice('');
+    try { showResult(await inspectSample($('sample').value)); await refreshHistory(); }
+    catch (e) { showNotice(e.message); }
+  };
+
+  $('inspect-all').onclick = async () => {
+    showNotice('');
+    const tests = [...$('sample').querySelectorAll('optgroup[label=test] option')].map(o => o.value);
+    let right = 0, last = null;
+    try {
+      for (const value of tests) {           // p05처럼 한 장씩 차례대로 검사
+        last = await inspectSample(value);
+        if (last.correct) right += 1;
+      }
+      if (last) showResult(last);
+      showNotice(`테스트 ${tests.length}장 중 ${right}장 정답 (Accuracy ${(right / tests.length * 100).toFixed(1)}%)`);
+      await refreshHistory();
+    } catch (e) { showNotice(e.message); }
+  };
+
+  $('reload-rule').onclick = async () => {
+    try {
+      const body = await jsonPost('/api/reload-rule', {});
+      $('rule-version').textContent = body.rule.rule_version;
+      showNotice(body.message);
+    } catch (e) { showNotice(e.message); }
+  };
+
+  // ---------- ② 업로드 + ROI 드래그 ----------
+  $('file').onchange = event => {
+    const file = event.target.files[0];
+    if (!file) return;
+    fileName = file.name;
+    const reader = new FileReader();          // 파일 → Base64 문자열
+    reader.onload = () => {
+      imageData = reader.result;
+      photo.src = imageData;
+      selected = null;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  photo.onload = () => {
+    $('empty').hidden = true;
+    photo.hidden = false;
+    canvas.hidden = false;
+    $('inspect-upload').disabled = false;
+    sizeCanvas();
+    updateRoiText();
+  };
+
+  function sizeCanvas() {
+    const rect = photo.getBoundingClientRect();
+    canvas.width = Math.round(rect.width);
+    canvas.height = Math.round(rect.height);
+    drawSelection();
+  }
+  window.addEventListener('resize', sizeCanvas);
+
+  function drawSelection(current = null) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const r = current || selected;
+    if (!r) return;
+    const x = Math.min(r.x1, r.x2) * canvas.width, y = Math.min(r.y1, r.y2) * canvas.height;
+    const w = Math.abs(r.x2 - r.x1) * canvas.width, h = Math.abs(r.y2 - r.y1) * canvas.height;
+    ctx.fillStyle = 'rgba(255, 200, 45, 0.13)';
+    ctx.strokeStyle = '#facc40';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([7, 4]);
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeRect(x, y, w, h);
+  }
+
+  // 마우스 위치를 0~1 비율 좌표로 변환 (화면 크기가 달라도 같은 위치)
+  function toRatio(event) {
+    const rect = canvas.getBoundingClientRect();
+    const clamp = v => Math.min(1, Math.max(0, v));
+    return { x: clamp((event.clientX - rect.left) / rect.width),
+             y: clamp((event.clientY - rect.top) / rect.height) };
+  }
+
+  canvas.addEventListener('pointerdown', e => {
+    dragging = true;
+    start = toRatio(e);
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    const p = toRatio(e);
+    drawSelection({ x1: start.x, y1: start.y, x2: p.x, y2: p.y });
+  });
+  canvas.addEventListener('pointerup', e => {
+    if (!dragging) return;
+    dragging = false;
+    const p = toRatio(e);
+    const r = { x1: Math.min(start.x, p.x), y1: Math.min(start.y, p.y),
+                x2: Math.max(start.x, p.x), y2: Math.max(start.y, p.y) };
+    // 너무 작게 클릭만 한 경우는 무시
+    selected = (r.x2 - r.x1 > 0.02 && r.y2 - r.y1 > 0.02) ? r : selected;
+    drawSelection();
+    updateRoiText();
+  });
+
+  function updateRoiText() {
+    if (!selected || !photo.naturalWidth) {
+      $('roi-state').textContent = 'ROI 미지정 → 사진 전체를 검사합니다. 충전기 입구 주변을 드래그해 주세요.';
+      return;
+    }
+    const w = Math.round((selected.x2 - selected.x1) * photo.naturalWidth);
+    const h = Math.round((selected.y2 - selected.y1) * photo.naturalHeight);
+    $('roi-state').textContent = `ROI 지정됨: 원본 기준 약 ${w} × ${h} px`;
+  }
+
+  $('reset-roi').onclick = () => { selected = null; drawSelection(); updateRoiText(); };
+
+  $('inspect-upload').onclick = async () => {
+    if (!imageData) return;
+    showNotice('');
+    try {
+      showResult(await jsonPost('/api/inspect/upload',
+        { image_base64: imageData, file_name: fileName, roi: selected }));
+      await refreshHistory();
+    } catch (e) { showNotice(e.message); }
+  };
+
+  // ---------- ④ 기록 ----------
+  $('clear-history').onclick = async () => {
+    await requestJson('/api/history', { method: 'DELETE' });
+    await refreshHistory();
+  };
+
+  // ---------- 처음 화면이 열릴 때 ----------
+  (async () => {
+    try {
+      const health = await requestJson('/api/health');
+      $('rule-version').textContent = health.rule_version;
+      await loadSamples();
+      await refreshHistory();
+    } catch (e) { showNotice('서버 연결 실패: ' + e.message); }
+  })();
+</script>
+</body>
+</html>

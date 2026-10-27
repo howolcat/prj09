@@ -1,0 +1,11 @@
+﻿file,actual,decision,correct,area_ratio,reason,rule_version
+ng_blur.jpg,NG,NG,True,0.0,NG_CABLE_AREA,cable-v1.0
+ng_bright.jpg,NG,NG,True,0.0,NG_CABLE_AREA,cable-v1.0
+ng_dark.jpg,NG,NG,True,0.0,NG_CABLE_AREA,cable-v1.0
+ng_noise.jpg,NG,NG,True,0.0,NG_CABLE_AREA,cable-v1.0
+ng_shift.jpg,NG,NG,True,0.0,NG_CABLE_AREA,cable-v1.0
+ok_blur.jpg,OK,OK,True,0.1077,,cable-v1.0
+ok_bright.jpg,OK,NG,False,0.0488,NG_CABLE_AREA,cable-v1.0
+ok_dark.jpg,OK,OK,True,0.1668,,cable-v1.0
+ok_noise.jpg,OK,OK,True,0.128,,cable-v1.0
+ok_shift.jpg,OK,OK,True,0.1345,,cable-v1.0

@@ -1,0 +1,10 @@
+{
+  "rule_version": "cable-v1.0",
+  "method": "fixed",
+  "fixed_threshold": 80,
+  "feature": "largest_area_ratio",
+  "ok_reference_ratio": 0.12853515625,
+  "ng_reference_ratio": 0.0,
+  "area_ratio_threshold": 0.064267578125,
+  "ok_when_greater": true
+}
