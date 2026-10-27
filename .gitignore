@@ -1,0 +1,15 @@
+# 가상환경 (용량 크고, requirements.txt로 다시 만들 수 있음)
+.venv/
+
+# Python 캐시
+__pycache__/
+*.pyc
+
+# Jupyter 자동 백업 (03_roi_crop-checkpoint.py 같은 파일)
+.ipynb_checkpoints/
+
+# Windows에서 복사할 때 생기는 파일
+*:Zone.Identifier
+
+# 대용량 원본 데이터 (7일차 MVTec 등)
+samples/day07/original/
